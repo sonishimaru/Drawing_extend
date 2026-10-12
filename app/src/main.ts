@@ -11,7 +11,9 @@ import { StringTool } from './editor/tools/string';
 import { balanceStrings } from './mobile/balance';
 import { extractModel } from './mobile/extract';
 import { solve } from './mobile/physics';
-import { Preview, type DisplayMode } from './preview/preview';
+import { standModel } from './mobile/stand';
+import { Preview, type DisplayMode, type FormView } from './preview/preview';
+import type { FormName } from './settings';
 import { TOOL_ICONS, TOOL_LABELS, TOOL_ORDER } from './ui/icons';
 import { formatMass, renderProps } from './ui/props';
 
@@ -59,24 +61,56 @@ let scheduled = false;
 
 function rebuild() {
   scheduled = false;
+  syncForm();
   try {
-    const model = extractModel(editor.drawLayer, editor.settings.artboardMm);
-    const result = solve(model);
+    const { form, artboardMm, background, plinth } = editor.settings;
+    const model = extractModel(editor.drawLayer, artboardMm);
     massById = new Map(model.bodies.flatMap((b) => b.parts.map((p) => [p.id, p.mass] as const)));
-    preview.update(result, editor.settings.background, editor.settings.artboardMm);
     const parts = model.bodies.reduce((n, b) => n + b.parts.length, 0);
-    const lines = [
-      `<div>総重量 <b>${formatMass(result.totalMass)}</b> · 部品 ${parts} · まとまり ${model.bodies.length} · 糸 ${model.strings.length}</div>`,
-      ...result.warnings.map((w) => `<div class="warn">${w}</div>`),
-    ];
-    if (!parts) lines[0] = '<div>左側に図形を描くと、ここにモビールとして吊るされます</div>';
-    info.innerHTML = lines.join('');
+    const lines: string[] = [];
+    let view: FormView;
+    if (form === 'stand') {
+      const stand = standModel(model, plinth);
+      view = { form, model, stand, plinth };
+      const deg = Math.abs((stand.theta * 180) / Math.PI);
+      lines.push(`<div>総重量 <b>${formatMass(stand.mass)}</b> · 部品 ${parts} · 接地幅 ${(stand.footprint[1] - stand.footprint[0]).toFixed(0)} mm</div>`);
+      if (plinth) lines.push('<div>台座に固定しています</div>');
+      else if (stand.toppled) lines.push(`<div class="warn">このままでは倒れます（${deg.toFixed(0)}° 傾いて止まります）。台座に固定するか、重心を接地面の上に</div>`);
+      else lines.push('<div>自立します</div>');
+      if (model.bodies.length > 1) lines.push(`<div class="warn">${model.bodies.length} つのまとまりが離れています（一体として表示）</div>`);
+    } else if (form === 'relief') {
+      view = { form, model };
+      const reach = Math.max(0, ...model.bodies.flatMap((b) => b.parts.map((p) => p.thickness)));
+      lines.push(`<div>総重量 <b>${formatMass(model.bodies.reduce((m, b) => m + b.mass, 0))}</b> · 部品 ${parts} · 板厚 最大 ${reach} mm</div>`);
+    } else {
+      const result = solve(model);
+      view = { form, result };
+      lines.push(`<div>総重量 <b>${formatMass(result.totalMass)}</b> · 部品 ${parts} · まとまり ${model.bodies.length} · 糸 ${model.strings.length}</div>`);
+      lines.push(...result.warnings.map((w) => `<div class="warn">${w}</div>`));
+    }
+    preview.update(view, background, artboardMm);
+    info.innerHTML = parts ? lines.join('') : '<div>左側に図形を描くと、ここに立体として現れます</div>';
   } catch (err) {
     console.error(err);
     info.innerHTML = `<div class="warn">プレビューの計算に失敗しました: ${(err as Error).message}</div>`;
   }
   renderProps(props, editor, (id) => massById.get(id));
 }
+
+const formButtons = $('form').querySelectorAll<HTMLButtonElement>('button');
+const plinthBox = $<HTMLInputElement>('plinth');
+function syncForm() {
+  const { form, plinth } = editor.settings;
+  formButtons.forEach((b) => b.classList.toggle('on', b.dataset.form === form));
+  plinthBox.checked = plinth;
+  $('plinth-wrap').hidden = form !== 'stand';
+  (document.querySelector('[data-action=balance]') as HTMLElement).hidden = form !== 'hang';
+  $('wind-label').textContent = form === 'stand' ? '回転' : '風';
+  ($('wind-label').parentElement as HTMLElement).hidden = form === 'relief';
+}
+formButtons.forEach((b) => b.addEventListener('click', () => editor.updateSettings({ form: b.dataset.form as FormName })));
+plinthBox.addEventListener('change', () => editor.updateSettings({ plinth: plinthBox.checked }));
+
 const schedule = () => {
   if (scheduled) return;
   scheduled = true;

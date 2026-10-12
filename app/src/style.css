@@ -229,6 +229,17 @@ input[type='number'] {
 .segmented button:last-child {
   border-radius: 0 4px 4px 0;
 }
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text);
+}
+.preview-bar {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: calc(100% - 20px);
+}
 .wind {
   display: flex;
   align-items: center;
@@ -278,4 +289,7 @@ input[type='number'] {
   .preview-pane {
     grid-column: 1 / -1;
   }
+}
+[hidden] {
+  display: none !important;
 }

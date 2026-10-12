@@ -3,12 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Mobile Editor</title>
+    <title>Drawing Extend</title>
   </head>
   <body>
     <div id="app">
       <header class="topbar">
-        <div class="brand">Mobile Editor<span>drawing → mobile</span></div>
+        <div class="brand">Drawing Extend<span>描いて、立ち上げる</span></div>
         <div class="actions">
           <button data-action="new" title="新規">新規</button>
           <button data-action="open" title="JSON（保存データ）または Illustrator 書き出し SVG を開く">開く…</button>
@@ -31,11 +31,17 @@
         <section class="pane preview-pane">
           <div class="preview-wrap" id="preview"></div>
           <div class="preview-bar">
+            <div class="segmented" id="form">
+              <button data-form="hang" class="on" title="糸で吊る（モビール）">吊るす</button>
+              <button data-form="stand" title="床や台座に立てる（彫刻）">立てる</button>
+              <button data-form="relief" title="壁に掛ける（レリーフ）">掛ける</button>
+            </div>
+            <label class="toggle" id="plinth-wrap" title="台座に固定すると倒れません"><input type="checkbox" id="plinth" />台座</label>
             <div class="segmented" id="mode">
               <button data-mode="material" class="on">素材</button>
               <button data-mode="drawing">ドローイング</button>
             </div>
-            <label class="wind">風<input type="range" id="wind" min="0" max="1" step="0.01" value="0.35" /></label>
+            <label class="wind"><span id="wind-label">風</span><input type="range" id="wind" min="0" max="1" step="0.01" value="0.35" /></label>
             <button data-action="balance" title="各糸を、吊った部品が描いた通りの角度で釣り合う位置へ動かします">釣り合わせる</button>
             <button id="fit" title="全体を表示">全体</button>
             <button id="shot" title="PNG で保存">撮影</button>

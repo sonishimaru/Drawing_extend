@@ -142,7 +142,11 @@ export class Editor {
   }
 
   setArtboardMm(mm: number) {
-    this.settings.artboardMm = mm;
+    this.updateSettings({ artboardMm: mm });
+  }
+
+  updateSettings(patch: Partial<DocSettings>) {
+    Object.assign(this.settings, patch);
     this.emitChange();
     this.scheduleSave();
   }
