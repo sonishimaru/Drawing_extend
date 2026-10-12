@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mobile Editor</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">Mobile Editor<span>drawing → mobile</span></div>
+        <div class="actions">
+          <button data-action="new" title="新規">新規</button>
+          <button data-action="open" title="JSON（保存データ）または Illustrator 書き出し SVG を開く">開く…</button>
+          <button data-action="import" title="SVG を今の図面に追加">SVG 追加…</button>
+          <button data-action="save" title="保存（JSON）">保存</button>
+          <button data-action="export-svg">SVG 書き出し</button>
+          <button data-action="sample">サンプル</button>
+          <span class="sep"></span>
+          <button data-action="undo" class="icon" title="取り消し (⌘/Ctrl+Z)">↶</button>
+          <button data-action="redo" class="icon" title="やり直し (⌘/Ctrl+Shift+Z)">↷</button>
+        </div>
+      </header>
+      <main class="workspace" id="workspace">
+        <nav class="toolbar" id="toolbar"></nav>
+        <section class="pane editor-pane">
+          <div class="canvas-wrap"><canvas id="editor-canvas" resize></canvas></div>
+          <div class="props" id="props"></div>
+        </section>
+        <div class="divider" id="divider" title="ドラッグで幅を変更"></div>
+        <section class="pane preview-pane">
+          <div class="preview-wrap" id="preview"></div>
+          <div class="preview-bar">
+            <div class="segmented" id="mode">
+              <button data-mode="material" class="on">素材</button>
+              <button data-mode="drawing">ドローイング</button>
+            </div>
+            <label class="wind">風<input type="range" id="wind" min="0" max="1" step="0.01" value="0.35" /></label>
+            <button data-action="balance" title="各糸を、吊った部品が描いた通りの角度で釣り合う位置へ動かします">釣り合わせる</button>
+            <button id="fit" title="全体を表示">全体</button>
+            <button id="shot" title="PNG で保存">撮影</button>
+          </div>
+          <div class="preview-info" id="info"></div>
+        </section>
+      </main>
+      <input type="file" id="file-input" accept=".json,.svg,application/json,image/svg+xml" hidden />
+      <div class="toast" id="toast"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
