@@ -188,8 +188,9 @@ fileInput.addEventListener('change', async () => {
 
 const actions: Record<string, () => void> = {
   new: () => {
-    if (editor.items.length && !confirm('今の図面を消して新規にしますか？（取り消しで戻せます）')) return;
+    const had = editor.items.length > 0;
     editor.clear();
+    if (had) toast('図面を消しました（⌘/Ctrl+Z で戻せます）');
     preview.requestFit();
   },
   open: () => {
