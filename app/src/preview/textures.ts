@@ -132,10 +132,16 @@ function drawPlaster(ctx: CanvasRenderingContext2D, m: MaterialDef, rand: () => 
   speckle(ctx, rand, m.accent, 2500, 1.2, 0.25);
 }
 
-const cache = new Map<string, THREE.Texture | null>();
+export interface MaterialTextures {
+  map: THREE.Texture;
+  /** the same pattern as linear data, for bump and roughness variation */
+  data: THREE.Texture;
+}
 
-/** Procedural colour texture for a material; one texture covers 200mm × 200mm. */
-export function materialTexture(m: MaterialDef): THREE.Texture | null {
+const cache = new Map<string, MaterialTextures | null>();
+
+/** Procedural textures for a material; one tile covers 200mm × 200mm. */
+export function materialTexture(m: MaterialDef): MaterialTextures | null {
   if (cache.has(m.id)) return cache.get(m.id)!;
   if (m.texture === 'none') {
     cache.set(m.id, null);
@@ -152,12 +158,18 @@ export function materialTexture(m: MaterialDef): THREE.Texture | null {
     plaster: drawPlaster,
   }[m.texture];
   draw(ctx, m, rand);
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
-  // Geometry is in metres: repeat every 0.2m.
-  tex.repeat.set(5, 5);
-  cache.set(m.id, tex);
-  return tex;
+  const setup = (tex: THREE.Texture) => {
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = 8;
+    // Geometry is in metres: repeat every 0.2m.
+    tex.repeat.set(5, 5);
+    return tex;
+  };
+  const map = setup(new THREE.CanvasTexture(c));
+  map.colorSpace = THREE.SRGBColorSpace;
+  const data = setup(new THREE.CanvasTexture(c));
+  data.colorSpace = THREE.NoColorSpace;
+  const result = { map, data };
+  cache.set(m.id, result);
+  return result;
 }

@@ -1,13 +1,18 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import type { Vec2 } from '../geom';
 import { getMaterial } from '../materials';
 import type { MobileModel, PartData } from '../mobile/model';
 import { normalizeAngle, type HangNode, type SolveResult } from '../mobile/physics';
 import type { StandResult } from '../mobile/stand';
 import type { FormName } from '../settings';
-import { materialTexture } from './textures';
+import { makeMaterial } from './materials3d';
+import { Stage, STUDIO_COLOR } from './stage';
 
 export type DisplayMode = 'material' | 'drawing';
 
@@ -53,7 +58,15 @@ interface TwistAnim {
   amp: number;
 }
 
-const GALLERY_BG = '#e8e6e2';
+/** Plates get a small chamfer so their edges catch the light. */
+const CHAMFER_MM = 0.5;
+/** Root strings run up to a ceiling well out of view. */
+const CEILING_RISE = 3;
+
+function hash(n: number): number {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
+}
 
 export class Preview {
   readonly renderer: THREE.WebGLRenderer;
@@ -61,14 +74,12 @@ export class Preview {
   private camera = new THREE.PerspectiveCamera(32, 1, 0.01, 50);
   private controls: OrbitControls;
   private root = new THREE.Group();
-  private wall: THREE.Mesh;
-  private floor: THREE.Mesh;
-  private reliefWall: THREE.Mesh;
+  private stageRig = new Stage();
+  private composer: EffectComposer;
+  private ao: GTAOPass;
   private stand: StandAnim | null = null;
   private turntable: THREE.Object3D | null = null;
   private form: FormName = 'hang';
-  private light: THREE.DirectionalLight;
-  private hemi: THREE.HemisphereLight;
   private envMap: THREE.Texture;
   private bodies = new Map<number, BodyAnim>();
   private twists: TwistAnim[] = [];
@@ -80,39 +91,47 @@ export class Preview {
   private fitted = false;
   private artboardMm = 500;
   private clock = new THREE.Clock();
+  /** smoothed frame time (s), used to fall back to lighter rendering on slow machines */
+  private frameTime = 1 / 60;
+  private slowFrames = 0;
+  private frames = 0;
+  private quality: 'high' | 'low' = 'high';
+  private qualityLocked = false;
 
   constructor(private container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.VSMShadowMap;
     this.renderer.toneMapping = THREE.NeutralToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
     container.appendChild(this.renderer.domElement);
 
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.envMap = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 0.55;
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.08;
     this.camera.position.set(0, 0, 2);
 
-    this.hemi = new THREE.HemisphereLight('#ffffff', '#d9d4cc', 0.6);
-    this.scene.add(this.hemi);
-    this.light = new THREE.DirectionalLight('#ffffff', 1.6);
-    this.light.castShadow = true;
-    this.light.shadow.mapSize.set(2048, 2048);
-    this.light.shadow.bias = -0.0004;
-    this.light.shadow.radius = 4;
-    this.scene.add(this.light, this.light.target);
+    this.scene.add(this.stageRig.group, this.root);
 
-    this.wall = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShadowMaterial({ opacity: 0.14 }));
-    this.wall.receiveShadow = true;
-    this.floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShadowMaterial({ opacity: 0.2 }));
-    this.floor.rotation.x = -Math.PI / 2;
-    this.floor.receiveShadow = true;
-    this.reliefWall = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshStandardMaterial({ color: '#c9c3ba', roughness: 0.95, envMapIntensity: 0.15 }));
-    this.reliefWall.receiveShadow = true;
-    this.scene.add(this.wall, this.floor, this.reliefWall, this.root);
+    // Multisampled HDR target, ambient occlusion, then tone mapping.
+    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    this.composer = new EffectComposer(this.renderer, target);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.ao = new GTAOPass(this.scene, this.camera, 1, 1);
+    this.ao.blendIntensity = 0.85;
+    this.composer.addPass(this.ao);
+    this.composer.addPass(new OutputPass());
+
+    const forced = new URLSearchParams(location.search).get('quality');
+    if (forced === 'low' || forced === 'high') {
+      this.qualityLocked = true;
+      this.setQuality(forced);
+    }
 
     new ResizeObserver(() => this.resize()).observe(container);
     this.resize();
@@ -281,7 +300,10 @@ export class Preview {
     if (this.stand) this.poseStand(this.stand, this.stand.target);
     if (this.turntable) this.turntable.rotation.y = 0;
     this.root.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(this.root);
+    const box = new THREE.Box3();
+    this.root.traverse((o) => {
+      if ((o instanceof THREE.Mesh || o instanceof THREE.Line) && !o.userData.noBounds) box.union(new THREE.Box3().setFromObject(o));
+    });
     for (const b of this.bodies.values()) this.pose(b, b.phi);
     if (this.stand) this.poseStand(this.stand, this.stand.phi);
     if (this.turntable) this.turntable.rotation.y = turn;
@@ -294,53 +316,48 @@ export class Preview {
     if (box.isEmpty()) return;
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
-    const span = Math.max(size.x, size.y);
+    const span = Math.max(size.x, size.y, 0.05);
+    let floorY: number;
+    let wallZ: number;
+    let keyDir: THREE.Vector3;
     if (this.form === 'hang') {
-      // Leave room behind the mobile for it to turn freely, then put up a wall to catch shadows.
-      this.wall.position.set(center.x, center.y, -(size.x / 2 + 0.12));
-      this.wall.scale.set(span * 6, span * 6, 1);
-      this.light.position.set(center.x - span * 0.45, center.y + span * 0.4, span * 2);
+      // Hung in front of the wall with room to turn, high above the floor.
+      floorY = box.min.y - span * 0.45;
+      wallZ = -(Math.max(size.x, size.z) / 2 + span * 0.25);
+      keyDir = new THREE.Vector3(0.45, -0.55, -1);
     } else if (this.form === 'stand') {
-      this.floor.position.set(center.x, box.min.y + 0.0002, 0);
-      this.floor.scale.set(span * 8, span * 8, 1);
-      this.light.position.set(center.x - span * 0.8, center.y + span * 1.6, span * 1.2);
+      floorY = box.min.y;
+      wallZ = -(Math.max(size.x, size.z) / 2 + span * 0.6);
+      keyDir = new THREE.Vector3(0.55, -0.9, -0.8);
     } else {
-      this.reliefWall.position.set(center.x, center.y, 0);
-      this.reliefWall.scale.set(span * 8, span * 8, 1);
-      // Raking light from the upper left, so thickness and layers cast shadows.
-      this.light.position.set(center.x - span * 0.7, center.y + span * 0.8, span * 0.5);
+      // Mounted on the wall; raking light from the upper left brings out the layers.
+      floorY = box.min.y - span * 0.35;
+      wallZ = 0;
+      keyDir = new THREE.Vector3(0.75, -0.75, -0.42);
     }
-    this.light.target.position.copy(center);
-    const cam = this.light.shadow.camera;
-    const r = span * 1.6;
-    cam.left = cam.bottom = -r;
-    cam.right = cam.top = r;
-    cam.near = 0.01;
-    cam.far = span * 8;
-    cam.updateProjectionMatrix();
+    this.stageRig.layout({ floorY, wallZ, centerX: center.x, span, target: center, keyDir: keyDir.normalize() });
+    const dist = this.camera.position.distanceTo(this.controls.target);
+    if (this.scene.fog instanceof THREE.Fog) {
+      this.scene.fog.near = dist * 1.6;
+      this.scene.fog.far = dist * 5;
+    }
   }
 
   private applyMode() {
     const drawing = this.mode === 'drawing';
-    this.scene.background = new THREE.Color(drawing ? this.background : GALLERY_BG);
+    const bg = drawing ? this.background : STUDIO_COLOR;
+    this.scene.background = new THREE.Color(bg);
+    this.scene.fog = new THREE.Fog(bg, 10, 30);
     this.scene.environment = drawing ? null : this.envMap;
-    this.wall.visible = !drawing && this.form === 'hang';
-    this.floor.visible = this.form === 'stand';
-    this.reliefWall.visible = this.form === 'relief';
-    const wallMat = this.reliefWall.material as THREE.MeshStandardMaterial;
-    wallMat.color.set(drawing ? this.background : '#c9c3ba');
-    this.light.intensity = this.form === 'relief' ? 2.4 : 1.6;
-    this.hemi.intensity = this.form === 'relief' ? 0.08 : 0.6;
-    wallMat.roughness = 0.95;
+    this.stageRig.setFlat(drawing);
+    this.ao.enabled = !drawing && this.quality === 'high';
+    this.stageRig.key.intensity = this.form === 'relief' ? 2.6 : 2.2;
   }
 
   private buildNode(node: HangNode, previous: Map<number, BodyAnim>): THREE.Object3D {
     const hang = new THREE.Group();
     const L = node.length * S;
-    const lineGeom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -L, 0)]);
-    const line = new THREE.Line(lineGeom, this.stringMaterial(!!node.string.virtual));
-    if (node.string.virtual) line.computeLineDistances();
-    hang.add(line);
+    hang.add(this.buildString(L, !!node.string.virtual, node.string.parent == null));
 
     const pivot = new THREE.Group();
     pivot.position.set(0, -L, 0);
@@ -373,6 +390,33 @@ export class Preview {
     return hang;
   }
 
+  /** A string hanging down from the origin; in the studio, root strings continue up to the ceiling. */
+  private buildString(length: number, virtual: boolean, root: boolean): THREE.Object3D {
+    const group = new THREE.Group();
+    if (this.mode === 'drawing') {
+      const geom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -length, 0)]);
+      const line = new THREE.Line(geom, this.stringMaterial(virtual));
+      if (virtual) line.computeLineDistances();
+      group.add(line);
+      return group;
+    }
+    const top = root ? CEILING_RISE : 0;
+    const thread = this.cached('thread', () => new THREE.MeshStandardMaterial({ color: '#3b3834', roughness: 0.8 }));
+    const geom = new THREE.CylinderGeometry(0.00025, 0.00025, length + top, 6, 1, true);
+    geom.translate(0, (top - length) / 2, 0);
+    const mesh = new THREE.Mesh(geom, thread);
+    mesh.castShadow = true;
+    // The run up to the ceiling shouldn't count when framing the piece.
+    mesh.userData.noBounds = true;
+    group.add(mesh);
+    // A small crimp where the string is tied to the part.
+    const knot = new THREE.Mesh(new THREE.SphereGeometry(0.0011, 10, 8), this.partMaterial({ kind: 'wire', material: 'brass' } as PartData));
+    knot.position.y = -length;
+    knot.castShadow = true;
+    group.add(knot);
+    return group;
+  }
+
   private buildPart(part: PartData): THREE.Object3D {
     const group = new THREE.Group();
     if (part.kind === 'plate') {
@@ -381,8 +425,31 @@ export class Preview {
       for (const s of part.shapes) {
         const shape = new THREE.Shape(s.outer.map((p) => new THREE.Vector2(p.x * S, -p.y * S)));
         for (const h of s.holes) shape.holes.push(new THREE.Path(h.map((p) => new THREE.Vector2(p.x * S, -p.y * S))));
-        const geom = new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false, curveSegments: 1 });
-        geom.translate(0, 0, -t / 2);
+        const chamfer = Math.min(CHAMFER_MM, part.thickness * 0.2) * S;
+        const geom =
+          this.mode === 'drawing'
+            ? new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false, curveSegments: 1 })
+            : new THREE.ExtrudeGeometry(shape, {
+                depth: t - chamfer * 2,
+                bevelEnabled: true,
+                bevelThickness: chamfer,
+                bevelSize: chamfer,
+                bevelOffset: -chamfer,
+                bevelSegments: 2,
+                curveSegments: 1,
+              });
+        geom.translate(0, 0, this.mode === 'drawing' ? -t / 2 : -t / 2 + chamfer);
+        // Every piece is cut from a different spot of the board, at its own angle.
+        const angle = hash(part.id) * Math.PI;
+        const shift = new THREE.Vector2(hash(part.id + 7), hash(part.id + 13));
+        const uv = geom.getAttribute('uv');
+        const c = Math.cos(angle);
+        const sn = Math.sin(angle);
+        for (let i = 0; i < uv.count; i++) {
+          const u = uv.getX(i);
+          const w = uv.getY(i);
+          uv.setXY(i, u * c - w * sn + shift.x, u * sn + w * c + shift.y);
+        }
         const mesh = new THREE.Mesh(geom, mat);
         mesh.position.z = part.z * S;
         mesh.castShadow = true;
@@ -406,9 +473,18 @@ export class Preview {
         }
         if (!path.curves.length) continue;
         const segments = Math.min(4000, Math.max(8, path.curves.length * 3));
-        const mesh = new THREE.Mesh(new THREE.TubeGeometry(path, segments, r, 8, false), mat);
+        const mesh = new THREE.Mesh(new THREE.TubeGeometry(path, segments, r, 10, false), mat);
         mesh.castShadow = true;
+        mesh.receiveShadow = true;
         group.add(mesh);
+        if (!l.closed) {
+          // Rounded ends, like a cut wire that has been filed.
+          for (const end of [pts[0], pts[pts.length - 1]]) {
+            const cap = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), mat);
+            cap.position.copy(end);
+            group.add(cap);
+          }
+        }
       }
     }
     return group;
@@ -420,25 +496,7 @@ export class Preview {
       return this.cached(`basic:${color}`, () => new THREE.MeshBasicMaterial({ color }));
     }
     const m = getMaterial(part.material);
-    return this.cached(`pbr:${m.id}`, () => {
-      const map = materialTexture(m);
-      if (m.transmission) {
-        return new THREE.MeshPhysicalMaterial({
-          color: m.color,
-          roughness: m.roughness,
-          metalness: 0,
-          transmission: m.transmission,
-          thickness: 0.004,
-          ior: 1.49,
-        });
-      }
-      return new THREE.MeshStandardMaterial({
-        color: map ? '#ffffff' : m.color,
-        map,
-        roughness: m.roughness,
-        metalness: m.metalness,
-      });
-    });
+    return this.cached(`pbr:${m.id}`, () => makeMaterial(m));
   }
 
   private lineMaterial(color: string) {
@@ -467,16 +525,38 @@ export class Preview {
     for (const c of b.counters) c.rotation.z = phi;
   }
 
+  private setQuality(q: 'high' | 'low') {
+    this.quality = q;
+    const high = q === 'high';
+    this.renderer.setPixelRatio(high ? Math.min(window.devicePixelRatio, 2) : 1);
+    this.composer.renderTarget1.samples = this.composer.renderTarget2.samples = high ? 4 : 0;
+    this.stageRig.key.shadow.blurSamples = high ? 20 : 8;
+    this.applyMode();
+    this.resize();
+  }
+
   private resize() {
     const w = Math.max(1, this.container.clientWidth);
     const h = Math.max(1, this.container.clientHeight);
     this.renderer.setSize(w, h);
+    this.composer.setPixelRatio(this.renderer.getPixelRatio());
+    this.composer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
 
   private tick() {
-    const dt = Math.min(this.clock.getDelta(), 1 / 20);
+    const raw = this.clock.getDelta();
+    const dt = Math.min(raw, 1 / 20);
+    // Skip the first frames (shader compilation) and long pauses (hidden tab).
+    if (!this.qualityLocked && this.quality === 'high' && ++this.frames > 30 && raw < 1) {
+      this.frameTime += (raw - this.frameTime) * 0.1;
+      this.slowFrames = this.frameTime > 0.045 ? this.slowFrames + 1 : 0;
+      if (this.slowFrames > 90) {
+        this.qualityLocked = true;
+        this.setQuality('low');
+      }
+    }
     const t = this.clock.elapsedTime;
     const wind = this.wind;
     for (const b of this.bodies.values()) {
@@ -507,6 +587,6 @@ export class Preview {
         wind * tw.amp * (Math.sin(t * w + tw.phase) + 0.35 * Math.sin(t * w * 2.3 + tw.phase * 1.7));
     }
     this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render(dt);
   }
 }
