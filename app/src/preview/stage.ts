@@ -57,7 +57,7 @@ export interface StageLayout {
   keyDir: THREE.Vector3;
 }
 
-export const STUDIO_COLOR = '#e6e3de';
+export const STUDIO_COLOR = '#dedad3';
 
 /** Studio sweep plus a three-point light rig with soft shadows. */
 export class Stage {
@@ -73,13 +73,11 @@ export class Stage {
     this.sweep = new THREE.Mesh(new THREE.BufferGeometry(), this.studioMaterial);
     this.sweep.receiveShadow = true;
 
-    this.key = new THREE.DirectionalLight('#fff6ea', 2.2);
+    this.key = new THREE.DirectionalLight('#fff6ea', 1.9);
     this.key.castShadow = true;
     this.key.shadow.mapSize.set(2048, 2048);
-    this.key.shadow.bias = -0.0002;
-    this.key.shadow.normalBias = 0.0006;
-    this.key.shadow.radius = 7;
-    this.key.shadow.blurSamples = 20;
+    this.key.shadow.bias = -0.0003;
+    this.key.shadow.normalBias = 0.0004;
 
     this.fill = new THREE.HemisphereLight('#f4f6ff', '#d8d0c4', 0.45);
     this.rim = new THREE.DirectionalLight('#eef3ff', 0.9);

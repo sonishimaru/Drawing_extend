@@ -102,7 +102,7 @@ export class Preview {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.VSMShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.NeutralToneMapping;
     this.renderer.toneMappingExposure = 1.0;
     container.appendChild(this.renderer.domElement);
@@ -336,6 +336,8 @@ export class Preview {
       keyDir = new THREE.Vector3(0.75, -0.75, -0.42);
     }
     this.stageRig.layout({ floorY, wallZ, centerX: center.x, span, target: center, keyDir: keyDir.normalize() });
+    // Occlusion radius in scene units: keep it to the scale of the pieces, not the room.
+    this.ao.updateGtaoMaterial({ radius: span * 0.05, thickness: span * 0.01, distanceExponent: 1.5, scale: 1 });
     const dist = this.camera.position.distanceTo(this.controls.target);
     if (this.scene.fog instanceof THREE.Fog) {
       this.scene.fog.near = dist * 1.6;
@@ -351,7 +353,7 @@ export class Preview {
     this.scene.environment = drawing ? null : this.envMap;
     this.stageRig.setFlat(drawing);
     this.ao.enabled = !drawing && this.quality === 'high';
-    this.stageRig.key.intensity = this.form === 'relief' ? 2.6 : 2.2;
+    this.stageRig.key.intensity = this.form === 'relief' ? 2.3 : 1.9;
   }
 
   private buildNode(node: HangNode, previous: Map<number, BodyAnim>): THREE.Object3D {
@@ -530,7 +532,9 @@ export class Preview {
     const high = q === 'high';
     this.renderer.setPixelRatio(high ? Math.min(window.devicePixelRatio, 2) : 1);
     this.composer.renderTarget1.samples = this.composer.renderTarget2.samples = high ? 4 : 0;
-    this.stageRig.key.shadow.blurSamples = high ? 20 : 8;
+    this.stageRig.key.shadow.mapSize.set(high ? 2048 : 1024, high ? 2048 : 1024);
+    this.stageRig.key.shadow.map?.dispose();
+    this.stageRig.key.shadow.map = null;
     this.applyMode();
     this.resize();
   }
