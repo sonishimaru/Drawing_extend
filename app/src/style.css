@@ -240,6 +240,43 @@ input[type='number'] {
   justify-content: flex-end;
   max-width: calc(100% - 20px);
 }
+.backdrop {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.backdrop .swatch.auto {
+  background: linear-gradient(135deg, #e6e3de 50%, #bbbec4 50%);
+}
+.backdrop input[type='color'] {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+}
+.cmyk {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.cmyk label {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--muted);
+}
+.cmyk input[type='number'] {
+  width: 46px;
+}
+.cmyk .chip {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  border: 1px solid #111;
+}
 .wind {
   display: flex;
   align-items: center;

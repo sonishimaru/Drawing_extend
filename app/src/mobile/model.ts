@@ -11,6 +11,8 @@ export interface PartData {
   diameter: number;
   fill: string | null;
   stroke: string | null;
+  /** material colour chosen by the user (CMYK converted to hex), or null for the material's own */
+  tint: string | null;
   shapes: ShapeRings[];
   lines: { pts: Vec2[]; closed: boolean }[];
   /** centre of the part along the depth axis (mm), for stacked plates */

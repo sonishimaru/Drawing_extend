@@ -13,7 +13,7 @@ import { extractModel } from './mobile/extract';
 import { solve } from './mobile/physics';
 import { standModel } from './mobile/stand';
 import { Preview, type DisplayMode, type FormView } from './preview/preview';
-import type { FormName } from './settings';
+import { PREVIEW_BACKGROUNDS, type FormName } from './settings';
 import { TOOL_ICONS, TOOL_LABELS, TOOL_ORDER } from './ui/icons';
 import { formatMass, renderProps } from './ui/props';
 
@@ -88,6 +88,7 @@ function rebuild() {
       lines.push(`<div>総重量 <b>${formatMass(result.totalMass)}</b> · 部品 ${parts} · まとまり ${model.bodies.length} · 糸 ${model.strings.length}</div>`);
       lines.push(...result.warnings.map((w) => `<div class="warn">${w}</div>`));
     }
+    preview.setBackdrop(editor.settings.previewBg);
     preview.update(view, background, artboardMm);
     info.innerHTML = parts ? lines.join('') : '<div>左側に図形を描くと、ここに立体として現れます</div>';
   } catch (err) {
@@ -97,9 +98,38 @@ function rebuild() {
   renderProps(props, editor, (id) => massById.get(id));
 }
 
+// ---- 3D backdrop ------------------------------------------------------
+const backdrop = $('backdrop');
+const backdropLabel = document.createElement('span');
+backdropLabel.className = 'label';
+backdropLabel.textContent = '背景';
+backdropLabel.style.color = 'var(--muted)';
+const backdropSwatches = PREVIEW_BACKGROUNDS.map((c) => {
+  const b = document.createElement('button');
+  b.className = 'swatch' + (c ? '' : ' auto');
+  if (c) b.style.background = c;
+  b.title = c ? `背景 ${c}` : '自動（素材表示はスタジオ、ドローイング表示は図面の背景色）';
+  b.addEventListener('click', () => editor.updateSettings({ previewBg: c }));
+  return b;
+});
+const backdropPicker = document.createElement('input');
+backdropPicker.type = 'color';
+backdropPicker.id = 'backdrop-color';
+backdropPicker.title = '好きな色を選ぶ';
+backdropPicker.addEventListener('input', () => editor.updateSettings({ previewBg: backdropPicker.value }));
+backdrop.append(backdropLabel, ...backdropSwatches, backdropPicker);
+function syncBackdrop() {
+  const current = editor.settings.previewBg;
+  const preset = PREVIEW_BACKGROUNDS.includes(current);
+  backdropSwatches.forEach((b, i) => b.classList.toggle('on', PREVIEW_BACKGROUNDS[i] === current));
+  backdropPicker.classList.toggle('on', !preset);
+  if (current) backdropPicker.value = current;
+}
+
 const formButtons = $('form').querySelectorAll<HTMLButtonElement>('button');
 const plinthBox = $<HTMLInputElement>('plinth');
 function syncForm() {
+  syncBackdrop();
   const { form, plinth } = editor.settings;
   formButtons.forEach((b) => b.classList.toggle('on', b.dataset.form === form));
   plinthBox.checked = plinth;

@@ -359,7 +359,7 @@ export class Editor {
   }
 
   /** Apply attributes to the selection, or to the defaults for new shapes when nothing is selected. */
-  applyStyle(patch: Partial<Defaults> & { material?: string }) {
+  applyStyle(patch: Partial<Defaults> & { material?: string; cmyk?: [number, number, number, number] | null }) {
     const sel = this.selection.filter((i) => !(i.data as ItemData).kind || (i.data as ItemData).kind === 'shape');
     if (!sel.length) {
       Object.assign(this.defaults, patch);
@@ -373,6 +373,10 @@ export class Editor {
         if (patch.fill) this.defaults.fill = patch.fill;
       }
       if (patch.material) d.material = patch.material;
+      if ('cmyk' in patch) {
+        if (patch.cmyk) d.cmyk = patch.cmyk;
+        else delete d.cmyk;
+      }
       if (patch.thickness != null) d.thickness = patch.thickness;
       if (patch.diameter != null) d.diameter = patch.diameter;
     }

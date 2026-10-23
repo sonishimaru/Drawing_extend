@@ -148,7 +148,8 @@ export function materialTexture(m: MaterialDef): MaterialTextures | null {
     return null;
   }
   const [c, ctx] = canvas();
-  const rand = rng(hashSeed(m.id));
+  // Tinted variants (`oak@#c08040`) keep the base material's pattern.
+  const rand = rng(hashSeed(m.id.split('@')[0]));
   const draw = {
     wood: drawWood,
     brushed: drawBrushed,

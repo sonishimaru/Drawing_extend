@@ -7,6 +7,7 @@ import {
   DEFAULT_WIRE_MATERIAL,
   getMaterial,
 } from '../materials';
+import { cmykToHex } from '../color';
 import { ARTBOARD_PX } from '../settings';
 import type { BodyData, MobileModel, PartData, StringData } from './model';
 
@@ -17,6 +18,8 @@ export interface ItemData {
   material?: string;
   thickness?: number;
   diameter?: number;
+  /** custom material colour, as C/M/Y/K percentages */
+  cmyk?: [number, number, number, number];
 }
 
 export function isShapeItem(item: paper.Item): item is ShapeItem {
@@ -188,6 +191,7 @@ export function extractModel(layer: paper.Layer, artboardMm: number): MobileMode
         material,
         thickness,
         diameter,
+        tint: d.cmyk ? cmykToHex(d.cmyk) : null,
         fill: colorCss(item.fillColor),
         stroke: colorCss(item.strokeColor),
         shapes,

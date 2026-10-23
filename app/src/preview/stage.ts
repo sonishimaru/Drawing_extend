@@ -86,8 +86,11 @@ export class Stage {
   }
 
   /** Flat drawing look: only the shadows remain, on the drawing's background colour. */
-  setFlat(flat: boolean) {
+  setFlat(flat: boolean, color: string) {
     this.sweep.material = flat ? this.shadowMaterial : this.studioMaterial;
+    this.studioMaterial.color.set(color);
+    // Shadows need to stay visible on a dark backdrop too.
+    this.shadowMaterial.opacity = new THREE.Color(color).getHSL({ h: 0, s: 0, l: 0 }).l < 0.35 ? 0.35 : 0.16;
   }
 
   layout(l: StageLayout) {

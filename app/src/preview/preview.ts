@@ -6,6 +6,7 @@ import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import type { Vec2 } from '../geom';
+import { tintMaterial } from '../color';
 import { getMaterial } from '../materials';
 import type { MobileModel, PartData } from '../mobile/model';
 import { normalizeAngle, type HangNode, type SolveResult } from '../mobile/physics';
@@ -86,6 +87,8 @@ export class Preview {
   private materials = new Map<string, THREE.Material>();
   private mode: DisplayMode = 'material';
   private background = '#bbbec4';
+  /** user-chosen backdrop colour; null follows the mode (studio grey, or the drawing's background) */
+  private backdrop: string | null = null;
   private wind = 0.35;
   private last: FormView | null = null;
   private fitted = false;
@@ -143,6 +146,12 @@ export class Preview {
     this.mode = mode;
     this.applyMode();
     if (this.last) this.update(this.last, this.background, this.artboardMm);
+  }
+
+  setBackdrop(color: string | null) {
+    if (color === this.backdrop) return;
+    this.backdrop = color;
+    this.applyMode();
   }
 
   setWind(w: number) {
@@ -347,11 +356,11 @@ export class Preview {
 
   private applyMode() {
     const drawing = this.mode === 'drawing';
-    const bg = drawing ? this.background : STUDIO_COLOR;
+    const bg = this.backdrop ?? (drawing ? this.background : STUDIO_COLOR);
     this.scene.background = new THREE.Color(bg);
     this.scene.fog = new THREE.Fog(bg, 10, 30);
     this.scene.environment = drawing ? null : this.envMap;
-    this.stageRig.setFlat(drawing);
+    this.stageRig.setFlat(drawing, bg);
     this.ao.enabled = !drawing && this.quality === 'high';
     this.stageRig.key.intensity = this.form === 'relief' ? 2.3 : 1.9;
   }
@@ -497,7 +506,8 @@ export class Preview {
       const color = part.kind === 'plate' ? (part.fill ?? '#ffffff') : (part.stroke ?? '#000000');
       return this.cached(`basic:${color}`, () => new THREE.MeshBasicMaterial({ color }));
     }
-    const m = getMaterial(part.material);
+    const base = getMaterial(part.material);
+    const m = part.tint ? tintMaterial(base, part.tint) : base;
     return this.cached(`pbr:${m.id}`, () => makeMaterial(m));
   }
 

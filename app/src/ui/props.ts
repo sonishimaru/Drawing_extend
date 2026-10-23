@@ -1,5 +1,6 @@
 import type { Editor } from '../editor/editor';
-import { CATEGORY_LABELS, MATERIALS, type MaterialCategory } from '../materials';
+import { cmykToHex, hexToCmyk, type Cmyk } from '../color';
+import { CATEGORY_LABELS, getMaterial, MATERIALS, type MaterialCategory } from '../materials';
 import { isShapeItem, isString, partKind, partMaterial, type ItemData } from '../mobile/extract';
 import { BACKGROUNDS, FILLS } from '../settings';
 
@@ -101,6 +102,7 @@ export function renderProps(el: HTMLElement, ed: Editor, massOf: (id: number) =>
     const mats = shapes.map(partMaterial);
     const mat = same(mats);
     el.append(group('素材', materialSelect(mat ?? '', (id) => ed.applyStyle({ material: id }), !mat)));
+    el.append(cmykControl(shapes, mat, ed));
     if (plates.length) {
       const t = same(plates.map((p) => (p.data as ItemData).thickness ?? ed.defaults.thickness));
       el.append(group('厚み', numberInput(t, 0.5, (v) => ed.applyStyle({ thickness: v })), text('mm')));
@@ -112,6 +114,50 @@ export function renderProps(el: HTMLElement, ed: Editor, massOf: (id: number) =>
     const mass = shapes.reduce((m, s) => m + (massOf(s.id) ?? 0), 0);
     el.append(group('重さ', text(formatMass(mass))));
   }
+}
+
+/** C/M/Y/K inputs for the material colour of the selection; starts from the material's own colour. */
+function cmykControl(shapes: paper.Item[], mat: string | null, ed: Editor): HTMLElement {
+  const values = shapes.map((s) => (s.data as ItemData).cmyk ?? null);
+  const custom = values.find((v) => v) ?? null;
+  const sameCustom = values.every((v) => JSON.stringify(v) === JSON.stringify(values[0]));
+  const start: Cmyk | null = sameCustom ? (custom ?? (mat ? hexToCmyk(getMaterial(mat).color) : null)) : null;
+  const wrap = document.createElement('div');
+  wrap.className = 'cmyk';
+  const chip = document.createElement('span');
+  chip.className = 'chip';
+  chip.title = '3D の素材の色';
+  const inputs = (['C', 'M', 'Y', 'K'] as const).map((ch, i) => {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.id = `cmyk-${ch.toLowerCase()}`;
+    input.min = '0';
+    input.max = '100';
+    input.step = '1';
+    input.value = start ? String(start[i]) : '';
+    input.placeholder = '—';
+    const label = document.createElement('label');
+    label.htmlFor = input.id;
+    label.append(ch, input);
+    return { input, label };
+  });
+  const read = (): Cmyk => inputs.map(({ input }) => Math.min(100, Math.max(0, parseFloat(input.value) || 0))) as Cmyk;
+  const paint = () => (chip.style.background = start || inputs.some((x) => x.input.value) ? cmykToHex(read()) : 'transparent');
+  paint();
+  for (const { input } of inputs) {
+    input.addEventListener('input', paint);
+    input.addEventListener('change', () => ed.applyStyle({ cmyk: read() }));
+  }
+  const reset = document.createElement('button');
+  reset.textContent = '素材の色';
+  reset.title = 'CMYK 指定を外して素材本来の色に戻す';
+  reset.disabled = !custom;
+  reset.addEventListener('click', () => ed.applyStyle({ cmyk: null }));
+  const label = document.createElement('span');
+  label.className = 'label';
+  label.textContent = '色 CMYK';
+  wrap.append(label, chip, ...inputs.map((x) => x.label), reset);
+  return wrap;
 }
 
 function text(t: string) {
